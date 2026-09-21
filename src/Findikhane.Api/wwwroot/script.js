@@ -1,5 +1,5 @@
 const catalog = {
-  "giresun-secme": { name: "Ordu Giresun Seçme", price: 349 },
+  "giresun-secme": { name: "Ordu ve Giresun Seçme", price: 349 },
   "tas-firin-kavrulmus": { name: "Taş Fırın Kavrulmuş", price: 389 },
   "ipek-kivam": { name: "İpek Kıvam", price: 269 }
 };

@@ -12,7 +12,7 @@ public static class ProductCatalog
 {
     public static readonly IReadOnlyDictionary<string, Product> Items = new Dictionary<string, Product>
     {
-        ["giresun-secme"] = new Product("giresun-secme", "Ordu Giresun Seçme", 349, "Çiğ iç fındık"),
+        ["giresun-secme"] = new Product("giresun-secme", "Ordu ve Giresun Seçme", 349, "Çiğ iç fındık"),
         ["tas-firin-kavrulmus"] = new Product("tas-firin-kavrulmus", "Taş Fırın Kavrulmuş", 389, "Kavrulmuş iç fındık"),
         ["ipek-kivam"] = new Product("ipek-kivam", "İpek Kıvam", 269, "Katkısız fındık ezmesi")
     };
