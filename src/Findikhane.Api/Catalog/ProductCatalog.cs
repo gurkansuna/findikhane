@@ -12,9 +12,9 @@ public static class ProductCatalog
 {
     public static readonly IReadOnlyDictionary<string, Product> Items = new Dictionary<string, Product>
     {
-        ["giresun-secme"] = new Product("giresun-secme", "Ordu ve Giresun Seçme", 349, "Çiğ iç fındık"),
-        ["tas-firin-kavrulmus"] = new Product("tas-firin-kavrulmus", "Taş Fırın Kavrulmuş", 389, "Kavrulmuş iç fındık"),
-        ["ipek-kivam"] = new Product("ipek-kivam", "İpek Kıvam", 269, "Katkısız fındık ezmesi")
+        ["giresun-secme"] = new Product("giresun-secme", "Ordu ve Giresun Seçme", 529, "Çiğ iç fındık"),
+        ["tas-firin-kavrulmus"] = new Product("tas-firin-kavrulmus", "Taş Fırın Kavrulmuş", 579, "Kavrulmuş iç fındık"),
+        ["ipek-kivam"] = new Product("ipek-kivam", "İpek Kıvam", 459, "Katkısız fındık ezmesi")
     };
 
     public static bool TryGet(string id, out Product product) => Items.TryGetValue(id, out product!);
