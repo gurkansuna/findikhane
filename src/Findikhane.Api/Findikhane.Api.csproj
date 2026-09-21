@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Findikhane.Api</RootNamespace>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Tek harici bağımlılık: ham ADO.NET ile PostgreSQL istemcisi.
+         Orijinal Node.js sürümü de framework kullanmıyordu (çekirdek http modülü);
+         burada da ORM yerine doğrudan parametrik SQL kullanılıyor. -->
+    <PackageReference Include="Npgsql" Version="8.0.5" />
+  </ItemGroup>
+
+  <!-- wwwroot içeriği Microsoft.NET.Sdk.Web tarafından zaten örtük olarak dahil edilir;
+       burada ayrıca belirtmek NETSDK1022 (yinelenen Content öğesi) hatasına yol açar. -->
+
+</Project>
