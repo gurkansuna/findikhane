@@ -17,8 +17,15 @@ public sealed class HazelnutPricingOptions
     /// <summary>
     /// Sayfa metninde kg başına TL fiyatını yakalayan, büyük/küçük harf duyarsız düzenli ifade.
     /// İlk yakalama grubu (capture group 1) fiyatı içermelidir (ondalık ayıracı , veya . olabilir).
+    ///
+    /// Varsayılan desen, SourceUrl'deki sayfanın 22.09.2026'da doğrulanmış gerçek biçimini
+    /// hedefler: "Serbest Piyasa Yağlı Fındık Fiyatı 194,25 TL" (kg burada YAZMIYOR — sayfanın
+    /// tamamı zaten kg başına; "TL" hemen ardından geliyor). Sayfa üç çeşit (Yağlı/Levant/Sivri)
+    /// gösteriyor; kabuklu fındığın en yaygın referans alınan (TMO'nun "Giresun kalite" ayrımına
+    /// karşılık gelen) çeşidi olan "Yağlı" burada sabit çapa olarak seçildi. SourceUrl farklı bir
+    /// sayfaya çevrilirse bu desen de o sayfanın gerçek metnine göre yeniden yazılmalıdır.
     /// </summary>
-    public string PricePattern { get; set; } = @"fındık\D{0,60}?(\d{2,3}(?:[.,]\d{1,2})?)\s*(?:TL|₺)\s*/?\s*kg";
+    public string PricePattern { get; set; } = @"Serbest\s+Piyasa\s+Ya[gğ]l[iı]\s+F[iı]nd[iı]k\s+F[iı]yat[iı]\D{0,20}?(\d{2,3}(?:[.,]\d{1,2})?)\s*TL";
 
     /// <summary>Kaç saatte bir otomatik yenileme denenecek (asgari 1 saat).</summary>
     public int RefreshIntervalHours { get; set; } = 24;
