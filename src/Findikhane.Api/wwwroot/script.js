@@ -1,3 +1,7 @@
+// Bu üç fiyat yalnızca JS çalışmadan önceki ilk boyama (paint) ve /api/products'a
+// erişilemediği durumlar için bir "son çare" (fallback). Gerçek fiyatlar artık
+// sunucuda otomatik güncelleniyor; sayfa yüklenir yüklenmez syncLivePrices()
+// bunları sunucudaki güncel değerlerle değiştirir (bkz. dosyanın sonu).
 const catalog = {
   "giresun-secme": { name: "Ordu ve Giresun Seçme", price: 549 },
   "tas-firin-kavrulmus": { name: "Taş Fırın Kavrulmuş", price: 599 },
@@ -122,3 +126,37 @@ document.querySelector("#newsletter-form").addEventListener("submit", (event) =>
 });
 
 renderCart();
+
+// Fındık fiyatları artık sunucuda otomatik güncelleniyor (bkz. Pricing/ klasörü);
+// sayfa açılışında güncel fiyatları çekip hem ürün kartlarını hem de (sepette zaten
+// bir şey varsa) sepet toplamını tazeler. /api/products'a erişilemezse yukarıdaki
+// sabit "son çare" fiyatlar öylece görünmeye devam eder — sayfa asla bozulmaz.
+async function syncLivePrices() {
+  let data;
+  try {
+    const response = await fetch("/api/products");
+    if (!response.ok) return;
+    data = await response.json();
+  } catch {
+    return;
+  }
+
+  (data.products || []).forEach((product) => {
+    if (!catalog[product.id]) return;
+    catalog[product.id].price = product.price;
+
+    const button = document.querySelector(`.add-button[data-product-id="${product.id}"]`);
+    const priceElement = button?.closest(".product-card")?.querySelector(".product-info strong");
+    if (priceElement) priceElement.textContent = `₺${product.price}`;
+  });
+
+  renderCart();
+
+  const note = document.querySelector("#price-updated-note");
+  if (note && data.lastUpdate?.updatedAtUtc) {
+    const updatedAt = new Date(data.lastUpdate.updatedAtUtc);
+    note.textContent = `Fiyatlar piyasaya göre otomatik güncellenir · son güncelleme: ${updatedAt.toLocaleDateString("tr-TR")}`;
+  }
+}
+
+syncLivePrices();

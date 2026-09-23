@@ -25,12 +25,13 @@ yazılmıştır.
 ```
 src/Findikhane.Api/
   Program.cs                  API endpoint'leri, güvenlik başlıkları, HTML sonuç sayfası
-  Catalog/ProductCatalog.cs   Ürün/fiyat kataloğu (orijinal CATALOG sabiti)
+  Catalog/ProductCatalog.cs   Ürün/fiyat kataloğu (artık thread-safe/güncellenebilir, bkz. Pricing/)
   Contracts/                  İstek/yanıt DTO'ları
   Validation/                 Alıcı ve sepet doğrulama (normaliseBuyer/normaliseCart)
   Payments/IyzicoClient.cs    iyzico imza oluşturma, doğrulama ve HTTP isteği
   Data/OrderRepository.cs     PostgreSQL sipariş deposu (readOrders/saveOrders karşılığı)
-  wwwroot/                    Değişmeyen vitrin (index.html, script.js, styles.css)
+  Pricing/                    Fındık fiyatlarının otomatik güncellenmesi (bkz. ilgili bölüm aşağıda)
+  wwwroot/                    Vitrin (index.html, script.js, styles.css) — fiyatlar artık /api/products'tan
 ```
 
 ## Docker ile çalıştırma
@@ -71,6 +72,73 @@ docker run --rm -p 8080:8080 \
 
 Bu üç iyzico/alan adı değişkeninden biri boşsa `/api/checkout` orijinal koddaki
 gibi `503` ile "Ödeme altyapısı henüz yapılandırılmadı." mesajı döner.
+
+| `HAZELNUT_PRICE_SOURCE_URL` | (İsteğe bağlı) `appsettings.json` içindeki `HazelnutPricing:SourceUrl`'u ezer |
+| `HAZELNUT_PRICE_ADMIN_KEY` | `/admin/hazelnut-price/*` uçlarını korur; boşsa bu uçlar tamamen kapalıdır. **appsettings.json'a gerçek bir anahtar yazmayın**, bunu ortam değişkeniyle verin. |
+
+## Fındık fiyatlarının otomatik güncellenmesi
+
+Üç ürünün (Ordu ve Giresun Seçme, Taş Fırın Kavrulmuş, İpek Kıvam) 500 g perakende
+fiyatları artık koda gömülü sabitler değil; `Pricing/` klasöründeki bir sistem
+tarafından kabuklu fındığın güncel serbest piyasa fiyatından (TL/kg) otomatik
+hesaplanıyor.
+
+**Nasıl çalışır:**
+
+1. `HazelnutPriceRefreshService` (bir `BackgroundService`) açılışta bir kez,
+   sonra `HazelnutPricing:RefreshIntervalHours` aralığında (varsayılan 24 saat)
+   `HazelnutPricing:SourceUrl` adresindeki sayfayı çekip `HazelnutPricing:PricePattern`
+   düzenli ifadesiyle kg fiyatını ayıklıyor.
+2. Bulunan kg fiyatından, `KernelYieldMultiplier` (kabuklu→iç fındık dönüşümü) ve
+   ürün başına `RawMargin` / `RoastedMargin` / `PasteMargin` çarpanlarıyla üç ürünün
+   500 g fiyatı hesaplanıyor, "9 ile biten" (charm pricing) yuvarlama uygulanıyor.
+3. Yeni fiyat, mevcut fiyata göre `MaxChangeRatio` (varsayılan %15) ile sınırlanıyor
+   — kaynak sayfa hatalı/anlık bir sayı döndürse bile fiyatlar tek seferde çok
+   sıçramaz.
+4. Sonuç hem bellekte (`ProductCatalog`, thread-safe/atomik) hem de
+   `App_Data/hazelnut-price-snapshot.json` dosyasında saklanıyor; uygulama
+   yeniden başladığında (deploy, konteyner restart) ilk otomatik yenileme
+   tamamlanana kadar bu son bilinen fiyatlar hemen geri yükleniyor.
+5. Vitrin sayfası (`script.js`), sayfa açılışında `GET /api/products`'ı çağırıp
+   ürün kartlarındaki ve sepetteki fiyatları bu güncel değerlerle değiştiriyor;
+   `index.html`/`script.js` içindeki sabit rakamlar yalnızca JS çalışmadan önceki
+   ilk boyama ve `/api/products`'a erişilemediği anlar için bir "son çare"dir.
+
+**⚠️ Önemli sınırlama:** Türkiye'de fındık fiyatları için resmî/ücretsiz bir API
+yok. Bu yüzden kaynak, bir veri/haber sitesinin HTML'ini "kazıyan" (scraping)
+basit bir mekanizma — doğası gereği kırılgandır. Kaynak site tasarımını
+değiştirirse desen eşleşmeyi bırakır; bu durumda sistem **çökmez**, sadece bir
+uyarı loglar ve son bilinen fiyatları korur. appsettings.json'daki varsayılan
+`SourceUrl`/`PricePattern` bu depoyu hazırlarken erişilen bir örnek sayfaya göre
+yazıldı — **canlıya almadan önce gerçek kaynağa karşı doğrulanmalı** ve düzenli
+olarak (özellikle fiyatlar hiç değişmiyor gibi göründüğünde) uygulama loglarından
+kontrol edilmelidir.
+
+**Uçlar:**
+
+| Uç | Açıklama |
+|---|---|
+| `GET /api/products` | Güncel ürün fiyatlarını ve son güncellemenin kaynağı/zamanını döner. Herkese açık. |
+| `POST /admin/hazelnut-price/refresh` | Zamanlamayı beklemeden anlık bir yenileme tetikler. `X-Admin-Token: <HAZELNUT_PRICE_ADMIN_KEY>` başlığı gerektirir. |
+| `POST /admin/hazelnut-price/override` | Kazıyıcı kalıcı olarak bozulduğunda kg fiyatını elle sabitler ve fiyatları hemen yeniden hesaplar (gövde: `{"pricePerKg": 205, "note": "..."}`). Aynı `X-Admin-Token` koruması geçerli; override diskte kalıcıdır (`App_Data/manual-price-override.json`) ve kaldırılana kadar web kaynağının önüne geçer. |
+
+Örnek: kazıyıcı bozulduğunda TMO'nun resmî açıklamasından elle güncelleme —
+
+```bash
+curl -X POST https://findikhane.com/admin/hazelnut-price/override \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-Token: $HAZELNUT_PRICE_ADMIN_KEY" \
+  -d '{"pricePerKg": 255, "note": "TMO 2026 Giresun kalite alım fiyatı"}'
+```
+
+**Kalibrasyon notu:** `RawMargin`/`RoastedMargin`/`PasteMargin`'in varsayılan
+değerleri (2.69 / 2.94 / 2.45), 21 Eylül 2026'da elle yapılan piyasa
+araştırmasına göre seçildi: o tarihte kabuklu fındık serbest piyasa fiyatı
+~190 TL/kg civarındaydı ve bu üç ürün için (butik/üretici-direkt karşılaştırmalarla
+belirlenen) hedef fiyatlar 549 / 599 / 499 TL idi — marjlar tam olarak bu
+sonucu (190 TL/kg girildiğinde) verecek şekilde geriye doğru hesaplandı. Bunlar
+fiziksel bir sabit değil, bir başlangıç kalibrasyonudur; girdi/işçilik
+maliyetleri değiştikçe `appsettings.json`'dan güncellenmelidir.
 
 ## Doğrulama (Node.js'den .NET'e taşıma sadakati)
 

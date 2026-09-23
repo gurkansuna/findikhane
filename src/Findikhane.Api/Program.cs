@@ -5,6 +5,7 @@ using System.Text.Json;
 using Findikhane.Api.Contracts;
 using Findikhane.Api.Data;
 using Findikhane.Api.Payments;
+using Findikhane.Api.Pricing;
 using Findikhane.Api.Validation;
 using Npgsql;
 
@@ -25,6 +26,14 @@ var connectionString = Environment.GetEnvironmentVariable("POSTGRES_CONNECTION_S
 var port = int.TryParse(Environment.GetEnvironmentVariable("PORT"), out var parsedPort) ? parsedPort : 8080;
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
+// Fındık fiyatlarının otomatik güncellenmesi: appsettings.json > "HazelnutPricing" bölümünden
+// bağlanır; kaynak adresi ve admin anahtarı gibi operasyonel alanlar ortam değişkeniyle
+// (kod değiştirmeden) ezilebilir. Detaylar için Pricing/HazelnutPricingOptions.cs.
+var pricingOptions = builder.Configuration.GetSection(HazelnutPricingOptions.SectionName).Get<HazelnutPricingOptions>()
+    ?? new HazelnutPricingOptions();
+pricingOptions.SourceUrl = Environment.GetEnvironmentVariable("HAZELNUT_PRICE_SOURCE_URL") ?? pricingOptions.SourceUrl;
+pricingOptions.AdminApiKey = Environment.GetEnvironmentVariable("HAZELNUT_PRICE_ADMIN_KEY") ?? pricingOptions.AdminApiKey;
+
 builder.Services.AddSingleton(iyzicoOptions);
 builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionString));
 builder.Services.AddSingleton<OrderRepository>();
@@ -34,6 +43,17 @@ builder.Services.AddHttpClient<IyzicoClient>(client =>
     client.Timeout = TimeSpan.FromSeconds(15);
 });
 
+builder.Services.AddSingleton(pricingOptions);
+builder.Services.AddSingleton<ManualPriceOverrideStore>();
+builder.Services.AddSingleton<PriceSnapshotStore>();
+builder.Services.AddHttpClient<WebHazelnutPriceSource>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+builder.Services.AddTransient<IHazelnutPriceSource>(sp => sp.GetRequiredService<WebHazelnutPriceSource>());
+builder.Services.AddSingleton<HazelnutPriceRefreshService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<HazelnutPriceRefreshService>());
+
 var app = builder.Build();
 
 // Sipariş tablosunun var olduğundan emin ol (EF migration yerine basit "ensure schema").
@@ -41,6 +61,11 @@ using (var scope = app.Services.CreateScope())
 {
     var repository = scope.ServiceProvider.GetRequiredService<OrderRepository>();
     await repository.EnsureSchemaAsync();
+
+    // Konteyner/uygulama az önce yeniden başladıysa, ilk otomatik yenileme çalışana kadar
+    // sabit tohum fiyatlarına dönmek yerine diskteki son bilinen fiyatları hemen geri yükle.
+    var priceRefresher = scope.ServiceProvider.GetRequiredService<HazelnutPriceRefreshService>();
+    priceRefresher.LoadPersistedSnapshotOnStartup();
 }
 
 app.UseDefaultFiles();
@@ -53,6 +78,9 @@ var jsonOptions = new JsonSerializerOptions
 
 app.MapPost("/api/checkout", HandleCheckoutAsync);
 app.MapPost("/payment/callback", HandlePaymentCallbackAsync);
+app.MapGet("/api/products", HandleGetProductsAsync);
+app.MapPost("/admin/hazelnut-price/refresh", HandleAdminRefreshAsync);
+app.MapPost("/admin/hazelnut-price/override", HandleAdminOverrideAsync);
 
 app.Run();
 
@@ -233,6 +261,112 @@ async Task HandlePaymentCallbackAsync(HttpContext context, IyzicoClient iyzico, 
     {
         await RenderPaymentResultAsync(context, false, "Ödeme sonucu sorgulanırken bir sorun oluştu.");
     }
+}
+
+// ------------------------------------------------------------------------------------
+// GET /api/products — vitrindeki script.js sayfa yüklenirken bunu çağırır ve DOM'daki
+// fiyatları (ve sepet hesaplarını) sunucudaki güncel, otomatik hesaplanmış fiyatlarla
+// değiştirir. index.html/script.js içindeki sabit rakamlar yalnızca JS çalışmadan önceki
+// ilk boyama (paint) ve olası bir ağ hatası için bir "son çare" (fallback) niteliğindedir.
+// ------------------------------------------------------------------------------------
+Task HandleGetProductsAsync(HttpContext context)
+{
+    var lastUpdate = Findikhane.Api.Catalog.ProductCatalog.LastUpdate;
+    var payload = new
+    {
+        products = Findikhane.Api.Catalog.ProductCatalog.Items.Values
+            .Select(p => new { p.Id, p.Name, p.Category, p.Price })
+            .ToList(),
+        lastUpdate = lastUpdate is null ? null : new
+        {
+            lastUpdate.Source,
+            kabukluPricePerKg = lastUpdate.KabukluPricePerKg,
+            updatedAtUtc = lastUpdate.UpdatedAtUtc
+        }
+    };
+    return WriteJsonAsync(context, HttpStatusCode.OK, payload, jsonOptions);
+}
+
+// ------------------------------------------------------------------------------------
+// POST /admin/hazelnut-price/refresh — otomatik döngüyü beklemeden anlık bir yenileme
+// tetikler (ör. TMO/serbest piyasa fiyatı yeni açıklandığında). X-Admin-Token başlığı
+// HazelnutPricing:AdminApiKey (üretimde HAZELNUT_PRICE_ADMIN_KEY ortam değişkeni) ile
+// eşleşmelidir; anahtar boşsa bu uç tamamen kapalıdır.
+// ------------------------------------------------------------------------------------
+async Task HandleAdminRefreshAsync(HttpContext context, HazelnutPriceRefreshService refresher, HazelnutPricingOptions pricingOpts)
+{
+    if (!IsAdminAuthorized(context, pricingOpts))
+    {
+        await WriteJsonAsync(context, HttpStatusCode.Unauthorized, new { error = "Yetkisiz." }, jsonOptions);
+        return;
+    }
+
+    var result = await refresher.RefreshOnceAsync(context.RequestAborted);
+    await WriteJsonAsync(context, result.Success ? HttpStatusCode.OK : HttpStatusCode.BadGateway, new
+    {
+        result.Success,
+        result.Error,
+        result.Source,
+        result.KabukluPricePerKg,
+        result.ProductPrices,
+        result.AttemptedAtUtc
+    }, jsonOptions);
+}
+
+// ------------------------------------------------------------------------------------
+// POST /admin/hazelnut-price/override — web kazıyıcı kalıcı olarak bozulduğunda (kaynak
+// site tasarımını değiştirdiğinde vb.) kabuklu fındık fiyatını elle sabitler ve fiyatları
+// hemen bu değerden yeniden hesaplar. Aynı X-Admin-Token koruması geçerlidir.
+// Gövde: { "pricePerKg": 205.0, "note": "kaynak kazıyıcı bozuldu, TMO açıklamasından girildi" }
+// ------------------------------------------------------------------------------------
+async Task HandleAdminOverrideAsync(HttpContext context, HazelnutPriceRefreshService refresher, ManualPriceOverrideStore overrides, HazelnutPricingOptions pricingOpts)
+{
+    if (!IsAdminAuthorized(context, pricingOpts))
+    {
+        await WriteJsonAsync(context, HttpStatusCode.Unauthorized, new { error = "Yetkisiz." }, jsonOptions);
+        return;
+    }
+
+    var body = await ReadBodyAsync(context.Request, limitBytes: 4 * 1024);
+
+    AdminPriceOverrideRequestDto? requestData;
+    try
+    {
+        requestData = JsonSerializer.Deserialize<AdminPriceOverrideRequestDto>(body, jsonOptions);
+    }
+    catch
+    {
+        await WriteJsonAsync(context, HttpStatusCode.BadRequest, new { error = "Geçersiz istek." }, jsonOptions);
+        return;
+    }
+
+    if (requestData?.PricePerKg is not { } pricePerKg || pricePerKg <= 0 || pricePerKg > 2000)
+    {
+        await WriteJsonAsync(context, HttpStatusCode.BadRequest, new { error = "pricePerKg 0 ile 2000 TL arasında olmalıdır." }, jsonOptions);
+        return;
+    }
+
+    overrides.Save(pricePerKg, requestData.Note);
+    var result = await refresher.RefreshOnceAsync(context.RequestAborted);
+    await WriteJsonAsync(context, result.Success ? HttpStatusCode.OK : HttpStatusCode.BadGateway, new
+    {
+        result.Success,
+        result.Error,
+        result.Source,
+        result.KabukluPricePerKg,
+        result.ProductPrices,
+        result.AttemptedAtUtc
+    }, jsonOptions);
+}
+
+bool IsAdminAuthorized(HttpContext context, HazelnutPricingOptions pricingOpts)
+{
+    if (string.IsNullOrEmpty(pricingOpts.AdminApiKey)) return false;
+    if (!context.Request.Headers.TryGetValue("X-Admin-Token", out var provided) || provided.Count == 0) return false;
+
+    var expectedBytes = Encoding.UTF8.GetBytes(pricingOpts.AdminApiKey);
+    var providedBytes = Encoding.UTF8.GetBytes(provided[0] ?? "");
+    return expectedBytes.Length == providedBytes.Length && CryptographicOperations.FixedTimeEquals(expectedBytes, providedBytes);
 }
 
 async Task RenderPaymentResultAsync(HttpContext context, bool success, string message)
