@@ -59,6 +59,9 @@ function openCart() {
   cartOverlay.hidden = false;
   requestAnimationFrame(() => cartOverlay.classList.add("is-visible"));
   document.body.classList.add("drawer-open");
+  // Sepeti her açtığında fiyatları tazele: sayfa uzun süre açık kaldıysa (ör. fiyat
+  // otomatik güncellemesi araya girdiyse) sepetteki rakamların bayatlamasını önler.
+  syncLivePrices();
 }
 
 function closeCart() {
@@ -102,6 +105,12 @@ checkoutForm.addEventListener("submit", async (event) => {
   checkoutButton.disabled = true;
   checkoutButton.innerHTML = "Ödeme sayfası hazırlanıyor…";
   checkoutMessage.textContent = "";
+
+  // Ödemeye geçmeden hemen önce fiyatları sunucuyla senkronize et: kullanıcının gördüğü
+  // sepet toplamı, az sonra /api/checkout'un gerçekten hesaplayacağı toplamla birebir
+  // aynı olsun (sunucu her zaman kendi güncel kataloğunu esas alır; bu sadece
+  // gösterilen rakamın da onunla eşleşmesini garanti eder).
+  await syncLivePrices();
 
   try {
     const response = await fetch("/api/checkout", {
@@ -160,3 +169,7 @@ async function syncLivePrices() {
 }
 
 syncLivePrices();
+
+// Sekme uzun süre açık kalırsa (fiyat otomatik güncellemesi bu sırada araya girse bile)
+// ürün kartları ve sepet sunucuyla birkaç dakika içinde yeniden hizalanır.
+window.setInterval(syncLivePrices, 5 * 60 * 1000);
