@@ -12,6 +12,17 @@ services:
       IYZICO_SECRET_KEY: ${IYZICO_SECRET_KEY:-}
       IYZICO_BASE_URL: ${IYZICO_BASE_URL:-https://sandbox-api.iyzipay.com}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      # Fındık fiyatı admin uçlarını (/admin/hazelnut-price/*) VE sipariş panelini (/admin)
+      # koruyan tek paylaşılan anahtar. Daha önce burada UNUTULMUŞTU — appsettings.json'da
+      # tanımlı olsa da .env'e yazsanız dahi konteynere hiç ulaşmıyordu, bu satır olmadan
+      # admin uçları/panel her zaman "Yetkisiz" dönerdi (boş anahtar = tamamen kapalı).
+      HAZELNUT_PRICE_ADMIN_KEY: ${HAZELNUT_PRICE_ADMIN_KEY:-}
+      # Not: burada da boş bir varsayılan kullanmak GÜVENLİDİR çünkü kod tarafında boş
+      # anahtar zaten "admin kapalı" anlamına geliyor. HAZELNUT_PRICE_SOURCE_URL için
+      # aynısını yapmayın — boş geçilirse (":-" ile boş string) kod, appsettings.json'daki
+      # doğru varsayılana DEĞİL boş adrese düşer (bkz. Program.cs, "??" yalnızca null'da
+      # devreye girer, boş string'de girmez). Onu geçersiz kılmak isterseniz gerçek bir
+      # değer verin, hiç eklemeyin veya varsayılanı burada da açıkça yazın.
       POSTGRES_CONNECTION_STRING: Host=postgres;Port=5432;Database=${POSTGRES_DB:-findikhane};Username=${POSTGRES_USER:-findikhane};Password=${POSTGRES_PASSWORD:-changeme}
     depends_on:
       postgres:
