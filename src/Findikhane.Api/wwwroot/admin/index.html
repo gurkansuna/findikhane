@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Sipariş paneli | Fındıkhane</title>
+  <style>
+    :root {
+      --ink: #193d36;
+      --deep: #12352f;
+      --mint: #d9e9da;
+      --cream: #f9f4e9;
+      --sand: #eadcc2;
+      --hazel: #b97035;
+      --rust: #b44e2d;
+      --line: rgba(25, 61, 54, .18);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); background: var(--cream); font-family: "DM Sans", Arial, sans-serif; }
+    button, input, select { font: inherit; }
+
+    .topbar { align-items: center; background: var(--deep); color: #fff8eb; display: flex; justify-content: space-between; padding: 16px 28px; }
+    .topbar strong { font-family: "Playfair Display", Georgia, serif; font-size: 19px; letter-spacing: -.03em; }
+    .topbar span { color: rgba(255,248,235,.65); font: 500 11px "DM Mono", monospace; letter-spacing: .04em; }
+    #logout-button { background: transparent; border: 1px solid rgba(255,248,235,.5); border-radius: 100px; color: #fff8eb; cursor: pointer; font-size: 12px; padding: 7px 14px; }
+    #logout-button:hover { background: rgba(255,248,235,.12); }
+
+    main { margin: 0 auto; max-width: 1220px; padding: 28px 24px 60px; }
+
+    #login-screen { align-items: center; display: flex; justify-content: center; min-height: 80vh; }
+    #login-card { background: #fffdf6; box-shadow: 0 16px 40px rgba(25,61,54,.12); max-width: 360px; padding: 36px 32px; text-align: center; width: 100%; }
+    #login-card h1 { font: 600 26px "Playfair Display", Georgia, serif; letter-spacing: -.04em; margin: 0 0 8px; }
+    #login-card p { color: #587067; font-size: 13px; line-height: 1.5; margin: 0 0 22px; }
+    #login-card input { background: #fffdf6; border: 1px solid rgba(25,61,54,.3); display: block; margin-bottom: 14px; padding: 12px; width: 100%; }
+    #login-card button { background: var(--ink); border: 0; color: #fffdf6; cursor: pointer; font-weight: 700; padding: 13px; width: 100%; }
+    #login-card button:hover { background: var(--deep); }
+    #login-error { color: var(--rust); font-size: 12px; min-height: 16px; margin-top: 10px; }
+
+    .toolbar { align-items: center; display: flex; flex-wrap: wrap; gap: 12px; margin: 4px 0 20px; }
+    .toolbar input, .toolbar select { background: #fffdf6; border: 1px solid rgba(25,61,54,.3); padding: 9px 11px; }
+    .toolbar input { flex: 1; min-width: 220px; }
+    .toolbar button { background: var(--ink); border: 0; color: #fffdf6; cursor: pointer; font-weight: 700; padding: 10px 16px; }
+    .toolbar button:hover { background: var(--deep); }
+    .toolbar .ghost { background: transparent; border: 1px solid var(--ink); color: var(--ink); }
+    .toolbar .ghost:hover { background: var(--mint); }
+
+    .summary-row { color: #587067; font: 12px "DM Mono", monospace; letter-spacing: .02em; margin-bottom: 14px; }
+
+    table { background: #fffdf6; border-collapse: collapse; box-shadow: 0 10px 26px rgba(25,61,54,.08); width: 100%; }
+    thead th { background: var(--mint); font: 700 10px "DM Mono", monospace; letter-spacing: .06em; padding: 12px 14px; text-align: left; text-transform: uppercase; }
+    tbody td { border-top: 1px solid var(--line); font-size: 13px; padding: 14px; vertical-align: top; }
+    tbody tr:hover { background: #fbf7ec; }
+    .order-id { font: 700 12px "DM Mono", monospace; }
+    .muted { color: #6d817a; font-size: 11px; }
+    .items-list { margin: 0; padding-left: 16px; }
+    .items-list li { margin-bottom: 2px; }
+    .total-cell { font-weight: 700; white-space: nowrap; }
+
+    .status-badge { border-radius: 100px; display: inline-block; font: 700 10px "DM Mono", monospace; letter-spacing: .04em; padding: 5px 10px; text-transform: uppercase; }
+    .status-PENDING { background: var(--sand); color: #7a5a1f; }
+    .status-SUCCESS { background: var(--mint); color: var(--ink); }
+    .status-FAILURE { background: #f3ddd4; color: var(--rust); }
+
+    .empty-state, .loading-state, .error-state { color: #6d817a; padding: 60px 0; text-align: center; }
+    .error-state { color: var(--rust); }
+
+    .pagination { align-items: center; display: flex; gap: 12px; justify-content: center; margin-top: 22px; }
+    .pagination button { background: transparent; border: 1px solid var(--ink); color: var(--ink); cursor: pointer; padding: 8px 16px; }
+    .pagination button:disabled { border-color: var(--line); color: var(--line); cursor: not-allowed; }
+    .pagination span { font: 12px "DM Mono", monospace; }
+
+    @media (max-width: 720px) {
+      table, thead, tbody, tr, th, td { display: block; }
+      thead { display: none; }
+      tbody tr { border-top: 2px solid var(--line); padding: 10px 14px; }
+      tbody td { border: 0; padding: 4px 0; }
+      tbody td::before { color: #6d817a; content: attr(data-label); display: block; font: 700 10px "DM Mono", monospace; letter-spacing: .04em; text-transform: uppercase; }
+    }
+  </style>
+</head>
+<body>
+  <div id="login-screen">
+    <div id="login-card">
+      <h1>Sipariş paneli</h1>
+      <p>Devam etmek için admin anahtarını girin.<br />(Fındık fiyatı admin uçlarıyla aynı anahtar.)</p>
+      <input id="token-input" type="password" placeholder="Admin anahtarı" autocomplete="off" />
+      <button id="login-button" type="button">Giriş yap</button>
+      <p id="login-error"></p>
+    </div>
+  </div>
+
+  <div id="panel-screen" hidden>
+    <div class="topbar">
+      <strong>fındıkhane · sipariş paneli</strong>
+      <span style="display:flex; align-items:center; gap:16px;">
+        <span id="last-refresh"></span>
+        <button id="logout-button" type="button">Çıkış</button>
+      </span>
+    </div>
+    <main>
+      <div class="toolbar">
+        <input id="search-input" type="text" placeholder="Sipariş no, isim, telefon veya e-posta ara…" />
+        <select id="status-select">
+          <option value="">Tüm durumlar</option>
+          <option value="SUCCESS">Ödendi</option>
+          <option value="PENDING">Beklemede</option>
+          <option value="FAILURE">Başarısız</option>
+        </select>
+        <button id="search-button" type="button">Ara</button>
+        <button id="refresh-button" class="ghost" type="button">Yenile</button>
+      </div>
+      <div class="summary-row" id="summary-row"></div>
+      <div id="content-area"></div>
+      <div class="pagination" id="pagination" hidden>
+        <button id="prev-page" type="button">← Önceki</button>
+        <span id="page-indicator"></span>
+        <button id="next-page" type="button">Sonraki →</button>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const TOKEN_KEY = "findikhane_admin_token";
+    const PAGE_SIZE = 25;
+
+    const loginScreen = document.querySelector("#login-screen");
+    const panelScreen = document.querySelector("#panel-screen");
+    const tokenInput = document.querySelector("#token-input");
+    const loginButton = document.querySelector("#login-button");
+    const loginError = document.querySelector("#login-error");
+    const logoutButton = document.querySelector("#logout-button");
+    const searchInput = document.querySelector("#search-input");
+    const statusSelect = document.querySelector("#status-select");
+    const searchButton = document.querySelector("#search-button");
+    const refreshButton = document.querySelector("#refresh-button");
+    const summaryRow = document.querySelector("#summary-row");
+    const contentArea = document.querySelector("#content-area");
+    const pagination = document.querySelector("#pagination");
+    const prevPageButton = document.querySelector("#prev-page");
+    const nextPageButton = document.querySelector("#next-page");
+    const pageIndicator = document.querySelector("#page-indicator");
+    const lastRefresh = document.querySelector("#last-refresh");
+
+    let currentPage = 1;
+    let totalCount = 0;
+
+    const statusLabels = { PENDING: "Beklemede", SUCCESS: "Ödendi", FAILURE: "Başarısız" };
+
+    function formatMoney(value) {
+      return new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 0 }).format(value);
+    }
+
+    function formatDate(value) {
+      if (!value) return "—";
+      return new Date(value).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    }
+
+    function getToken() {
+      try { return sessionStorage.getItem(TOKEN_KEY); } catch { return null; }
+    }
+
+    function setToken(token) {
+      try { sessionStorage.setItem(TOKEN_KEY, token); } catch { /* sessionStorage yoksa sekme kapanana kadar sadece bellekte tutulur olmaz, en azından çökmesin */ }
+    }
+
+    function clearToken() {
+      try { sessionStorage.removeItem(TOKEN_KEY); } catch { /* yok say */ }
+    }
+
+    function showLogin(message) {
+      loginScreen.hidden = false;
+      panelScreen.hidden = true;
+      loginError.textContent = message || "";
+    }
+
+    function showPanel() {
+      loginScreen.hidden = true;
+      panelScreen.hidden = false;
+    }
+
+    async function fetchOrders() {
+      const token = getToken();
+      if (!token) { showLogin(); return; }
+
+      contentArea.innerHTML = '<p class="loading-state">Siparişler yükleniyor…</p>';
+      pagination.hidden = true;
+
+      const params = new URLSearchParams({ page: String(currentPage), pageSize: String(PAGE_SIZE) });
+      const status = statusSelect.value;
+      const search = searchInput.value.trim();
+      if (status) params.set("status", status);
+      if (search) params.set("q", search);
+
+      let response;
+      try {
+        response = await fetch(`/admin/orders?${params.toString()}`, { headers: { "X-Admin-Token": token } });
+      } catch {
+        contentArea.innerHTML = '<p class="error-state">Sunucuya bağlanılamadı. İnternet bağlantınızı kontrol edip "Yenile"ye basın.</p>';
+        return;
+      }
+
+      if (response.status === 401) {
+        clearToken();
+        showLogin("Anahtar hatalı ya da süresi geçmiş görünüyor. Tekrar girin.");
+        return;
+      }
+
+      if (!response.ok) {
+        contentArea.innerHTML = '<p class="error-state">Siparişler alınamadı. Az sonra tekrar deneyin.</p>';
+        return;
+      }
+
+      const data = await response.json();
+      renderOrders(data);
+      lastRefresh.textContent = `son yenileme: ${new Date().toLocaleTimeString("tr-TR")}`;
+    }
+
+    function renderOrders(data) {
+      totalCount = data.totalCount || 0;
+      const orders = data.orders || [];
+
+      summaryRow.textContent = totalCount === 0
+        ? "Eşleşen sipariş yok."
+        : `${totalCount} sipariş bulundu · sayfa ${data.page}`;
+
+      if (orders.length === 0) {
+        contentArea.innerHTML = '<p class="empty-state">Gösterilecek sipariş yok.</p>';
+        pagination.hidden = true;
+        return;
+      }
+
+      const rows = orders.map((order) => {
+        const itemsHtml = order.items.map((item) =>
+          `<li>${escapeHtml(item.name)} × ${item.quantity} — ${formatMoney(item.lineTotal)}</li>`
+        ).join("");
+        const statusClass = `status-${order.paymentStatus}`;
+        const statusLabel = statusLabels[order.paymentStatus] || order.paymentStatus;
+        const addressLine = [order.buyerAddress, order.buyerCity].filter(Boolean).map(escapeHtml).join(", ");
+
+        return `
+          <tr>
+            <td data-label="Sipariş No"><span class="order-id">${escapeHtml(order.orderId)}</span><br /><span class="muted">${formatDate(order.createdAt)}</span></td>
+            <td data-label="Müşteri">${escapeHtml(order.buyerName) || "—"}<br /><span class="muted">${escapeHtml(order.buyerPhone) || "—"} · ${escapeHtml(order.buyerEmail) || "—"}</span></td>
+            <td data-label="Teslimat adresi">${addressLine || "—"}</td>
+            <td data-label="Ürünler"><ul class="items-list">${itemsHtml}</ul></td>
+            <td data-label="Toplam" class="total-cell">${formatMoney(order.total)}</td>
+            <td data-label="Durum"><span class="status-badge ${statusClass}">${statusLabel}</span>${order.completedAt ? `<br /><span class="muted">${formatDate(order.completedAt)}</span>` : ""}</td>
+          </tr>`;
+      }).join("");
+
+      contentArea.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Sipariş No</th>
+              <th>Müşteri</th>
+              <th>Teslimat adresi</th>
+              <th>Ürünler</th>
+              <th>Toplam</th>
+              <th>Durum</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+
+      const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+      pagination.hidden = totalPages <= 1;
+      pageIndicator.textContent = `${data.page} / ${totalPages}`;
+      prevPageButton.disabled = data.page <= 1;
+      nextPageButton.disabled = data.page >= totalPages;
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+    }
+
+    loginButton.addEventListener("click", () => {
+      const token = tokenInput.value.trim();
+      if (!token) { loginError.textContent = "Anahtar boş olamaz."; return; }
+      setToken(token);
+      tokenInput.value = "";
+      showPanel();
+      currentPage = 1;
+      fetchOrders();
+    });
+
+    tokenInput.addEventListener("keydown", (event) => { if (event.key === "Enter") loginButton.click(); });
+
+    logoutButton.addEventListener("click", () => {
+      clearToken();
+      showLogin();
+    });
+
+    searchButton.addEventListener("click", () => { currentPage = 1; fetchOrders(); });
+    searchInput.addEventListener("keydown", (event) => { if (event.key === "Enter") { currentPage = 1; fetchOrders(); } });
+    statusSelect.addEventListener("change", () => { currentPage = 1; fetchOrders(); });
+    refreshButton.addEventListener("click", () => fetchOrders());
+    prevPageButton.addEventListener("click", () => { if (currentPage > 1) { currentPage -= 1; fetchOrders(); } });
+    nextPageButton.addEventListener("click", () => { currentPage += 1; fetchOrders(); });
+
+    if (getToken()) { showPanel(); fetchOrders(); } else { showLogin(); }
+  </script>
+</body>
+</html>

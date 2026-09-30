@@ -81,6 +81,21 @@ app.MapPost("/payment/callback", HandlePaymentCallbackAsync);
 app.MapGet("/api/products", HandleGetProductsAsync);
 app.MapPost("/admin/hazelnut-price/refresh", HandleAdminRefreshAsync);
 app.MapPost("/admin/hazelnut-price/override", HandleAdminOverrideAsync);
+app.MapGet("/admin/orders", HandleAdminOrdersAsync);
+
+// ASP.NET Core'un endpoint eşleştirmesi "/admin" desenini sondaki / olsun ya da olmasın
+// (hem "/admin" hem "/admin/") eşleştiriyor — bu yüzden UseStaticFiles/UseDefaultFiles'a
+// (bunlar bu isteğe hiç sıra gelmeden önce endpoint zaten eşleşiyor) güvenmek yerine paneli
+// burada doğrudan sunuyoruz. Böylece findikhane.com/admin (sonunda / olsun olmasın) her
+// zaman çalışır; yönlendirme YAPILMIYOR (aksi halde "/admin/" kendi kendine yönlenip
+// tarayıcıda sonsuz yönlendirme/"too many redirects" hatasına yol açardı — bu, ilk
+// yazımda gerçek bir hataydı ve Playwright testiyle yakalanıp burada düzeltildi).
+// Not: "/admin" deseni zaten hem "/admin" hem "/admin/" isteğiyle eşleşiyor (endpoint
+// routing sondaki / karakterine duyarsız); İKİSİNİ BİRDEN ayrıca eşlemeye çalışmak
+// "AmbiguousMatchException" ile 500'e yol açar (bunu da Playwright/curl testinde
+// yakalayıp düzelttik) — o yüzden burada tek bir MapGet yeterli ve doğru olan.
+var adminPanelHtml = File.ReadAllText(Path.Combine(builder.Environment.WebRootPath, "admin", "index.html"));
+app.MapGet("/admin", (HttpContext context) => WriteHtmlAsync(context, HttpStatusCode.OK, adminPanelHtml));
 
 app.Run();
 
@@ -125,7 +140,12 @@ async Task HandleCheckoutAsync(HttpContext context, IyzicoClient iyzico, OrderRe
             Cart = cart,
             ConversationId = conversationId,
             Total = total,
-            PaymentStatus = "PENDING"
+            PaymentStatus = "PENDING",
+            BuyerName = contactName,
+            BuyerPhone = buyer.GsmNumber,
+            BuyerEmail = buyer.Email,
+            BuyerAddress = buyer.Address,
+            BuyerCity = buyer.City
         };
         await orders.InsertAsync(order);
 
@@ -357,6 +377,64 @@ async Task HandleAdminOverrideAsync(HttpContext context, HazelnutPriceRefreshSer
         result.ProductPrices,
         result.AttemptedAtUtc
     }, jsonOptions);
+}
+
+// ------------------------------------------------------------------------------------
+// GET /admin/orders — /admin panelinin (wwwroot/admin/index.html) veri kaynağı. Geçilen
+// siparişleri (kargo/teslimat bilgisiyle birlikte) sayfalanmış şekilde döner. Aynı
+// X-Admin-Token koruması geçerlidir (bkz. IsAdminAuthorized) — bu uç kredi kartı bilgisi
+// döndürmez (hiç saklanmıyor zaten) ve T.C. kimlik no da hiçbir zaman saklanmadığından
+// döndürülemez; yalnızca kargolama için gereken isim/telefon/e-posta/adres/şehir döner.
+// Sorgu parametreleri: status (PENDING|SUCCESS|FAILURE, boşsa tümü), q (serbest arama:
+// sipariş no/isim/telefon/e-posta), page (1'den başlar), pageSize (azami 200).
+// ------------------------------------------------------------------------------------
+async Task HandleAdminOrdersAsync(HttpContext context, OrderRepository orders, HazelnutPricingOptions pricingOpts)
+{
+    if (!IsAdminAuthorized(context, pricingOpts))
+    {
+        await WriteJsonAsync(context, HttpStatusCode.Unauthorized, new { error = "Yetkisiz." }, jsonOptions);
+        return;
+    }
+
+    var query = context.Request.Query;
+    var status = query.TryGetValue("status", out var statusValues) ? statusValues.ToString() : null;
+    if (status is not (null or "" or "PENDING" or "SUCCESS" or "FAILURE"))
+    {
+        await WriteJsonAsync(context, HttpStatusCode.BadRequest, new { error = "status PENDING, SUCCESS veya FAILURE olmalıdır." }, jsonOptions);
+        return;
+    }
+
+    var search = query.TryGetValue("q", out var searchValues) ? searchValues.ToString() : null;
+
+    var page = query.TryGetValue("page", out var pageValues) && int.TryParse(pageValues, out var parsedPage) && parsedPage > 0 ? parsedPage : 1;
+    var pageSize = query.TryGetValue("pageSize", out var pageSizeValues) && int.TryParse(pageSizeValues, out var parsedPageSize) && parsedPageSize > 0
+        ? Math.Min(parsedPageSize, 200)
+        : 50;
+
+    var (records, totalCount) = await orders.GetOrdersAsync(status, search, page, pageSize, context.RequestAborted);
+
+    var payload = new
+    {
+        orders = records.Select(order => new
+        {
+            order.OrderId,
+            order.CreatedAt,
+            order.CompletedAt,
+            order.PaymentStatus,
+            order.PaymentId,
+            order.Total,
+            order.BuyerName,
+            order.BuyerPhone,
+            order.BuyerEmail,
+            order.BuyerAddress,
+            order.BuyerCity,
+            Items = order.Cart.Select(line => new { line.Id, line.Name, line.Quantity, line.Price, line.LineTotal }).ToList()
+        }).ToList(),
+        totalCount,
+        page,
+        pageSize
+    };
+    await WriteJsonAsync(context, HttpStatusCode.OK, payload, jsonOptions);
 }
 
 bool IsAdminAuthorized(HttpContext context, HazelnutPricingOptions pricingOpts)

@@ -131,6 +131,27 @@ curl -X POST https://findikhane.com/admin/hazelnut-price/override \
   -d '{"pricePerKg": 255, "note": "TMO 2026 Giresun kalite alım fiyatı"}'
 ```
 
+## Sipariş paneli (/admin)
+
+`https://findikhane.com/admin` adresinde, geçilen siparişleri kargolamak için gözden
+geçirebileceğiniz basit bir panel var (sipariş no, tarih, alıcı adı/telefon/e-posta,
+teslimat adresi, sepet içeriği, toplam tutar ve ödeme durumu — Beklemede/Ödendi/Başarısız).
+Durum ve serbest metin (sipariş no/isim/telefon/e-posta) ile filtrelenebilir, sayfalanır.
+
+- **Kimlik doğrulama:** ayrı bir kullanıcı/şifre sistemi yok; panel, fiyat admin uçlarıyla
+  **aynı paylaşılan anahtarı** (`HAZELNUT_PRICE_ADMIN_KEY`) kullanır — panelde bu anahtarı bir
+  kere girersiniz, tarayıcı sekmesi kapanana kadar hatırlanır (`sessionStorage`). Anahtar boşsa
+  panel de (diğer admin uçları gibi) tamamen kapalıdır.
+- Veri kaynağı: `GET /admin/orders` (aynı `X-Admin-Token` koruması; `status`, `q`, `page`,
+  `pageSize` sorgu parametreleri).
+- **Bilinçli olarak saklanmayan veri:** T.C. kimlik numarası veritabanına hiç yazılmıyor —
+  yalnızca ödeme anında iyzico'nun dolandırıcılık kontrolüne anlık olarak gönderiliyor. Fatura
+  kesmek için kimlik no gerekiyorsa bu ayrıca eklenmeli; şu an panelde sadece kargo/teslimat
+  için gereken isim, telefon, e-posta, adres ve şehir bilgisi tutuluyor.
+- Bu alanları depolamak için `orders` tablosuna geriye dönük uyumlu bir migration eklendi
+  (uygulama her başladığında `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` ile otomatik çalışır);
+  elle bir veritabanı migration'ı çalıştırmanız gerekmiyor.
+
 **Kalibrasyon notu:** `RawMargin`/`RoastedMargin`/`PasteMargin`'in varsayılan
 değerleri (2.69 / 2.94 / 2.45), 21 Eylül 2026'da elle yapılan piyasa
 araştırmasına göre seçildi: o tarihte kabuklu fındık serbest piyasa fiyatı
